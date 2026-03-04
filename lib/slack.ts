@@ -35,7 +35,7 @@ export function buildWipReportBlocks(data: UserWipCount[]): SlackBlock[] {
   const blocks: SlackBlock[] = [
     {
       type: "header",
-      text: { type: "plain_text", text: `📊 Daily WIP Report — ${today}`, emoji: true },
+      text: { type: "plain_text", text: `Daily WIP Report — ${today}`, emoji: true },
     },
     {
       type: "section",
@@ -54,7 +54,7 @@ export function buildWipReportBlocks(data: UserWipCount[]): SlackBlock[] {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `*${user.userName}*  —  🔵 In Progress: *${user.inProgress}*  ·  🟡 In Review: *${user.inReview}*`,
+        text: `*${user.userName}*  —  In Progress: *${user.inProgress}*  |  In Review: *${user.inReview}*`,
       },
     });
 
@@ -64,9 +64,9 @@ export function buildWipReportBlocks(data: UserWipCount[]): SlackBlock[] {
       const chunk = user.issues.slice(i, i + CHUNK_SIZE);
       const lines = chunk
         .map((issue) => {
-          const emoji = issue.state.toLowerCase().includes("review") ? "🟡" : "🔵";
-          const durationStr = issue.duration ? `  ⏱ ${issue.duration}` : "";
-          return `${emoji}  <${issue.url}|${issue.identifier}>  ${issue.title}\n      _${issue.state} · ${issue.teamName}_${durationStr}`;
+          const stateTag = issue.state.toLowerCase().includes("review") ? "[review]" : "[in progress]";
+          const durationStr = issue.duration ? ` — ${issue.duration}` : "";
+          return `<${issue.url}|${issue.identifier}>  ${issue.title}\n      _${stateTag} ${issue.teamName}${durationStr}_`;
         })
         .join("\n");
 
@@ -94,30 +94,21 @@ export function buildStatusChangeBlock(event: {
   cycleTime: string | null;
   totalCycleTime: string | null;
 }): SlackBlock[] {
-  const emoji =
-    event.toStateType === "completed"
-      ? "✅"
-      : event.toState.toLowerCase().includes("review")
-        ? "🔍"
-        : "🚀";
-
   const assignee = event.assigneeName ?? "Unassigned";
 
   const lines = [
-    `${emoji} *<${event.url}|${event.identifier}>* moved to *${event.toState}*`,
-    `*${event.title}*`,
-    `👤 *${assignee}*  ·  ${event.teamName}`,
+    `*<${event.url}|${event.identifier}>* moved to *${event.toState}*`,
+    `${event.title}`,
+    `*${assignee}*  |  ${event.teamName}`,
     `_${event.fromState} → ${event.toState}_`,
   ];
 
-  // Show time in previous state
   if (event.cycleTime) {
-    lines.push(`⏱ *${event.cycleTime}* in _${event.fromState}_`);
+    lines.push(`*${event.cycleTime}* in _${event.fromState}_`);
   }
 
-  // Show total time since "In Progress" (when moving to Review or Done)
   if (event.totalCycleTime) {
-    lines.push(`🕐 *${event.totalCycleTime}* total since _In Progress_`);
+    lines.push(`*${event.totalCycleTime}* total since _In Progress_`);
   }
 
   return [
