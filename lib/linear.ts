@@ -10,16 +10,24 @@ export function getLinearClient(): LinearClient {
   return client;
 }
 
-export interface TeamWipCount {
+export interface UserWipIssue {
+  identifier: string;
+  title: string;
+  url: string;
+  state: string;
   teamName: string;
-  teamKey: string;
+}
+
+export interface UserWipCount {
+  userName: string;
+  userId: string;
   inProgress: number;
   inReview: number;
   total: number;
-  issues: { id: string; identifier: string; title: string; assigneeName: string | null; state: string }[];
+  issues: UserWipIssue[];
 }
 
-export async function getWipCounts(): Promise<TeamWipCount[]> {
+export async function getWipCounts(): Promise<UserWipCount[]> {
   const linear = getLinearClient();
   const teamFilter = getTeamFilter();
 
@@ -34,17 +42,13 @@ export async function getWipCounts(): Promise<TeamWipCount[]> {
     );
   }
 
-  const results: TeamWipCount[] = [];
+  // Collect all WIP issues across teams, keyed by user
+  const userMap = new Map<string, UserWipCount>();
+  const unassignedKey = "__unassigned__";
 
   for (const team of teams) {
     const states = await team.states();
-    const wipStates = states.nodes.filter(
-      (s) => s.type === "started"
-    );
-
-    const wipIssues: TeamWipCount["issues"] = [];
-    let inProgress = 0;
-    let inReview = 0;
+    const wipStates = states.nodes.filter((s) => s.type === "started");
 
     for (const state of wipStates) {
       const issues = await linear.issues({
@@ -56,34 +60,46 @@ export async function getWipCounts(): Promise<TeamWipCount[]> {
 
       for (const issue of issues.nodes) {
         const assignee = await issue.assignee;
-        const nameLower = state.name.toLowerCase();
-        const isReview = nameLower.includes("review");
+        const isReview = state.name.toLowerCase().includes("review");
 
-        if (isReview) {
-          inReview += 1;
-        } else {
-          inProgress += 1;
+        const key = assignee?.id ?? unassignedKey;
+        const name = assignee?.name ?? "Unassigned";
+
+        if (!userMap.has(key)) {
+          userMap.set(key, {
+            userName: name,
+            userId: key,
+            inProgress: 0,
+            inReview: 0,
+            total: 0,
+            issues: [],
+          });
         }
 
-        wipIssues.push({
-          id: issue.id,
+        const entry = userMap.get(key)!;
+        if (isReview) {
+          entry.inReview += 1;
+        } else {
+          entry.inProgress += 1;
+        }
+        entry.total += 1;
+        entry.issues.push({
           identifier: issue.identifier,
           title: issue.title,
-          assigneeName: assignee?.name ?? null,
+          url: issue.url,
           state: state.name,
+          teamName: team.name,
         });
       }
     }
-
-    results.push({
-      teamName: team.name,
-      teamKey: team.key,
-      inProgress,
-      inReview,
-      total: inProgress + inReview,
-      issues: wipIssues,
-    });
   }
+
+  // Sort: real users first (by total desc), unassigned last
+  const results = Array.from(userMap.values()).sort((a, b) => {
+    if (a.userId === unassignedKey) return 1;
+    if (b.userId === unassignedKey) return -1;
+    return b.total - a.total;
+  });
 
   return results;
 }

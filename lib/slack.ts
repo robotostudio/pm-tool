@@ -1,4 +1,5 @@
 import { getEnv } from "./config";
+import type { UserWipCount } from "./linear";
 
 interface SlackBlock {
   type: string;
@@ -22,17 +23,9 @@ export async function sendSlackMessage(blocks: SlackBlock[], text: string) {
   }
 }
 
-export function buildWipReportBlocks(
-  data: {
-    teamName: string;
-    teamKey: string;
-    inProgress: number;
-    inReview: number;
-    total: number;
-    issues: { identifier: string; title: string; assigneeName: string | null; state: string }[];
-  }[]
-): SlackBlock[] {
-  const totalWip = data.reduce((sum, t) => sum + t.total, 0);
+export function buildWipReportBlocks(data: UserWipCount[]): SlackBlock[] {
+  const totalWip = data.reduce((sum, u) => sum + u.total, 0);
+  const totalPeople = data.filter((u) => u.userId !== "__unassigned__").length;
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long",
     month: "short",
@@ -46,40 +39,39 @@ export function buildWipReportBlocks(
     },
     {
       type: "section",
-      text: { type: "mrkdwn", text: `*Total WIP across all teams: ${totalWip}*` },
+      text: {
+        type: "mrkdwn",
+        text: `*${totalWip} items* in progress across *${totalPeople} people*`,
+      },
     },
     { type: "divider" },
   ];
 
-  for (const team of data) {
-    if (team.total === 0) continue;
+  for (const user of data) {
+    if (user.total === 0) continue;
 
     blocks.push({
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `*${team.teamName}* (${team.teamKey})`,
+        text: `*${user.userName}*  —  🔵 In Progress: *${user.inProgress}*  ·  🟡 In Review: *${user.inReview}*`,
       },
-      fields: [
-        { type: "mrkdwn", text: `🔵 In Progress: *${team.inProgress}*` },
-        { type: "mrkdwn", text: `🟡 In Review: *${team.inReview}*` },
-      ],
     });
 
-    if (team.issues.length > 0) {
-      const issueLines = team.issues
-        .slice(0, 10)
-        .map((i) => {
-          const assignee = i.assigneeName ? ` → ${i.assigneeName}` : "";
-          return `• \`${i.identifier}\` ${i.title} [${i.state}]${assignee}`;
+    // Split issues into chunks of 5 to stay within Slack's 3000 char block limit
+    const CHUNK_SIZE = 5;
+    for (let i = 0; i < user.issues.length; i += CHUNK_SIZE) {
+      const chunk = user.issues.slice(i, i + CHUNK_SIZE);
+      const lines = chunk
+        .map((issue) => {
+          const emoji = issue.state.toLowerCase().includes("review") ? "🟡" : "🔵";
+          return `${emoji}  <${issue.url}|${issue.identifier}>  ${issue.title}\n      _${issue.state} · ${issue.teamName}_`;
         })
         .join("\n");
 
-      const extra = team.issues.length > 10 ? `\n_...and ${team.issues.length - 10} more_` : "";
-
       blocks.push({
         type: "section",
-        text: { type: "mrkdwn", text: issueLines + extra },
+        text: { type: "mrkdwn", text: lines },
       });
     }
 

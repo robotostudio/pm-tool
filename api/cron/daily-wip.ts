@@ -13,20 +13,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const wipData = await getWipCounts();
-    const totalWip = wipData.reduce((sum, t) => sum + t.total, 0);
+    const totalWip = wipData.reduce((sum, u) => sum + u.total, 0);
 
     const blocks = buildWipReportBlocks(wipData);
-    const text = `Daily WIP Report: ${totalWip} items in progress`;
+    const text = `Daily WIP Report: ${totalWip} items across ${wipData.length} people`;
 
     await sendSlackMessage(blocks, text);
 
     return res.status(200).json({
       ok: true,
       totalWip,
-      teams: wipData.map((t) => ({
-        team: t.teamName,
-        inProgress: t.inProgress,
-        inReview: t.inReview,
+      people: wipData.map((u) => ({
+        user: u.userName,
+        inProgress: u.inProgress,
+        inReview: u.inReview,
       })),
     });
   } catch (err) {

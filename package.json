@@ -6,14 +6,19 @@
     "dev": "vercel dev",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint api lib"
+    "lint": "eslint api lib",
+    "test:wip": "tsx scripts/test-wip.ts",
+    "test:webhook": "tsx scripts/test-webhook.ts",
+    "test:slack": "tsx scripts/test-slack.ts"
   },
   "dependencies": {
     "@linear/sdk": "^29.0.0",
-    "@vercel/node": "^5.0.0"
+    "@vercel/node": "^5.0.0",
+    "dotenv": "^16.4.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
     "typescript": "^5.7.0"
   }
 }
