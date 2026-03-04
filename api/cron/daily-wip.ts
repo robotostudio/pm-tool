@@ -3,19 +3,12 @@ import { getWipCounts } from "../../lib/linear";
 import { buildWipReportBlocks, sendSlackMessage } from "../../lib/slack";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Verify auth — accept either:
-  // 1. Vercel cron header: Authorization: Bearer <CRON_SECRET>
-  // 2. Manual trigger: ?token=<CRON_SECRET>
+  // Verify cron secret (sent by Vercel cron and manual dashboard triggers)
   const authHeader = req.headers.authorization;
-  const queryToken = req.query.token as string | undefined;
   const cronSecret = process.env.CRON_SECRET;
 
-  if (cronSecret) {
-    const headerOk = authHeader === `Bearer ${cronSecret}`;
-    const tokenOk = queryToken === cronSecret;
-    if (!headerOk && !tokenOk) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
+  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    return res.status(401).json({ error: "Unauthorized" });
   }
 
   try {
