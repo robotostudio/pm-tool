@@ -98,6 +98,8 @@ export function buildStatusChangeBlock(event: {
         ? "🔍"
         : "🚀";
 
+  const assignee = event.assigneeName ?? "Unassigned";
+
   return [
     {
       type: "section",
@@ -106,7 +108,7 @@ export function buildStatusChangeBlock(event: {
         text: [
           `${emoji} *<${event.url}|${event.identifier}>* moved to *${event.toState}*`,
           `*${event.title}*`,
-          `Team: ${event.teamName}${event.assigneeName ? ` • Assignee: ${event.assigneeName}` : ""}`,
+          `👤 *${assignee}*  ·  ${event.teamName}`,
           `_${event.fromState} → ${event.toState}_`,
         ].join("\n"),
       },
