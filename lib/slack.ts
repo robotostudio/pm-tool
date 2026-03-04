@@ -90,6 +90,7 @@ export function buildStatusChangeBlock(event: {
   fromState: string;
   toState: string;
   toStateType: string;
+  cycleTime: string | null;
 }): SlackBlock[] {
   const emoji =
     event.toStateType === "completed"
@@ -100,17 +101,23 @@ export function buildStatusChangeBlock(event: {
 
   const assignee = event.assigneeName ?? "Unassigned";
 
+  const lines = [
+    `${emoji} *<${event.url}|${event.identifier}>* moved to *${event.toState}*`,
+    `*${event.title}*`,
+    `👤 *${assignee}*  ·  ${event.teamName}`,
+    `_${event.fromState} → ${event.toState}_`,
+  ];
+
+  if (event.cycleTime) {
+    lines.push(`⏱ *${event.cycleTime}* in _${event.fromState}_`);
+  }
+
   return [
     {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: [
-          `${emoji} *<${event.url}|${event.identifier}>* moved to *${event.toState}*`,
-          `*${event.title}*`,
-          `👤 *${assignee}*  ·  ${event.teamName}`,
-          `_${event.fromState} → ${event.toState}_`,
-        ].join("\n"),
+        text: lines.join("\n"),
       },
     },
   ];

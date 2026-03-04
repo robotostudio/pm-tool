@@ -103,3 +103,59 @@ export async function getWipCounts(): Promise<UserWipCount[]> {
 
   return results;
 }
+
+/**
+ * Get the time an issue spent in a given state by looking at issue history.
+ * Returns duration in milliseconds, or null if no transition found.
+ */
+export async function getTimeInState(
+  issueId: string,
+  stateName: string
+): Promise<number | null> {
+  const linear = getLinearClient();
+  const issue = await linear.issue(issueId);
+  const history = await issue.history();
+
+  // Find when the issue entered the target state (most recent first)
+  let enteredAt: Date | null = null;
+  let exitedAt: Date | null = null;
+
+  // History is newest first — we want the most recent entry into stateName
+  const sorted = [...history.nodes].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  );
+
+  for (const event of sorted) {
+    const toState = await event.toState;
+    const fromState = await event.fromState;
+
+    if (toState?.name === stateName) {
+      enteredAt = new Date(event.createdAt);
+      exitedAt = null; // reset — we're looking for the latest pair
+    } else if (fromState?.name === stateName) {
+      exitedAt = new Date(event.createdAt);
+    }
+  }
+
+  if (!enteredAt) return null;
+
+  // If no exit yet, use now
+  const end = exitedAt ?? new Date();
+  return end.getTime() - enteredAt.getTime();
+}
+
+export function formatDuration(ms: number): string {
+  const totalMinutes = Math.floor(ms / 60000);
+  const totalHours = Math.floor(totalMinutes / 60);
+  const totalDays = Math.floor(totalHours / 24);
+
+  if (totalDays > 0) {
+    const hours = totalHours % 24;
+    return hours > 0 ? `${totalDays}d ${hours}h` : `${totalDays}d`;
+  }
+  if (totalHours > 0) {
+    const minutes = totalMinutes % 60;
+    return minutes > 0 ? `${totalHours}h ${minutes}m` : `${totalHours}h`;
+  }
+  return `${totalMinutes}m`;
+}

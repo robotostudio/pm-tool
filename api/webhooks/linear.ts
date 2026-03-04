@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import crypto from "node:crypto";
-import { getLinearClient } from "../../lib/linear";
+import { getLinearClient, getTimeInState, formatDuration } from "../../lib/linear";
 import { buildStatusChangeBlock, sendSlackMessage } from "../../lib/slack";
 import { getTeamFilter } from "../../lib/config";
 
@@ -122,6 +122,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // Ignore — previous state may be deleted
     }
 
+    // Calculate cycle time: how long was it in the previous state?
+    let cycleTime: string | null = null;
+    try {
+      const timeMs = await getTimeInState(issue.id, fromStateName);
+      if (timeMs !== null && timeMs > 0) {
+        cycleTime = formatDuration(timeMs);
+      }
+    } catch {
+      // Non-critical — skip cycle time if history lookup fails
+    }
+
     const blocks = buildStatusChangeBlock({
       identifier: issue.identifier,
       title: issue.title,
@@ -131,6 +142,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       fromState: fromStateName,
       toState: state.name,
       toStateType: state.type,
+      cycleTime,
     });
 
     const text = `${issue.identifier} moved to ${state.name}`;
