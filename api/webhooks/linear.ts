@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import crypto from "node:crypto";
-import { getLinearClient, getTimeInState, formatDuration } from "../../lib/linear";
+import { getLinearClient, getTimeInState, getTimeSinceInProgress, formatDuration } from "../../lib/linear";
 import { buildStatusChangeBlock, sendSlackMessage } from "../../lib/slack";
 import { getTeamFilter } from "../../lib/config";
 
@@ -133,6 +133,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // Non-critical — skip cycle time if history lookup fails
     }
 
+    // Calculate total time since "In Progress" (for Review and Done transitions)
+    let totalCycleTime: string | null = null;
+    try {
+      // Only show total cycle time when moving to Review or Done (not when entering In Progress)
+      if (state.name !== "In Progress") {
+        const totalMs = await getTimeSinceInProgress(issue.id);
+        if (totalMs !== null && totalMs > 0) {
+          totalCycleTime = formatDuration(totalMs);
+        }
+      }
+    } catch {
+      // Non-critical
+    }
+
     const blocks = buildStatusChangeBlock({
       identifier: issue.identifier,
       title: issue.title,
@@ -143,6 +157,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       toState: state.name,
       toStateType: state.type,
       cycleTime,
+      totalCycleTime,
     });
 
     const text = `${issue.identifier} moved to ${state.name}`;

@@ -16,6 +16,8 @@ export interface UserWipIssue {
   url: string;
   state: string;
   teamName: string;
+  /** How long the issue has been in its current state (human-readable) */
+  duration: string | null;
 }
 
 export interface UserWipCount {
@@ -76,6 +78,17 @@ export async function getWipCounts(): Promise<UserWipCount[]> {
           });
         }
 
+        // Calculate how long the issue has been in its current state
+        let duration: string | null = null;
+        try {
+          const timeMs = await getTimeInState(issue.id, state.name);
+          if (timeMs !== null && timeMs > 0) {
+            duration = formatDuration(timeMs);
+          }
+        } catch {
+          // Non-critical — skip if history lookup fails
+        }
+
         const entry = userMap.get(key)!;
         if (isReview) {
           entry.inReview += 1;
@@ -89,6 +102,7 @@ export async function getWipCounts(): Promise<UserWipCount[]> {
           url: issue.url,
           state: state.name,
           teamName: team.name,
+          duration,
         });
       }
     }
@@ -142,6 +156,36 @@ export async function getTimeInState(
   // If no exit yet, use now
   const end = exitedAt ?? new Date();
   return end.getTime() - enteredAt.getTime();
+}
+
+/**
+ * Get the time since an issue first entered "In Progress".
+ * Useful for measuring total cycle time from start of work to review/done.
+ * Returns duration in milliseconds, or null if never was In Progress.
+ */
+export async function getTimeSinceInProgress(
+  issueId: string
+): Promise<number | null> {
+  const linear = getLinearClient();
+  const issue = await linear.issue(issueId);
+  const history = await issue.history();
+
+  const sorted = [...history.nodes].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  );
+
+  // Find the first time issue entered "In Progress"
+  let startedAt: Date | null = null;
+  for (const event of sorted) {
+    const toState = await event.toState;
+    if (toState?.name === "In Progress") {
+      startedAt = new Date(event.createdAt);
+      break; // use the first entry into In Progress
+    }
+  }
+
+  if (!startedAt) return null;
+  return Date.now() - startedAt.getTime();
 }
 
 export function formatDuration(ms: number): string {
