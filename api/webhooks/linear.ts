@@ -6,13 +6,32 @@ import { getTeamFilter } from "../../lib/config";
 
 const TRACKED_STATE_TYPES = new Set(["started", "completed"]);
 
-function verifySignature(body: string, signature: string | undefined, secret: string): boolean {
-  if (!signature || !secret) return !secret; // skip verification if no secret configured
+function verifySignature(rawBody: Buffer, signature: string, secret: string): boolean {
   const hmac = crypto.createHmac("sha256", secret);
-  hmac.update(body);
+  hmac.update(rawBody);
   const digest = hmac.digest("hex");
-  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(digest));
+  try {
+    return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(digest));
+  } catch {
+    return false;
+  }
 }
+
+// Read raw body from request stream (Vercel doesn't expose it directly)
+function getRawBody(req: VercelRequest): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", () => resolve(Buffer.concat(chunks)));
+    req.on("error", reject);
+  });
+}
+
+export const config = {
+  api: {
+    bodyParser: false, // Disable body parsing so we can read raw body for signature verification
+  },
+};
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Allow GET for testing connectivity
@@ -24,17 +43,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const payload = req.body;
-  console.log("[webhook] Received:", JSON.stringify({ type: payload?.type, action: payload?.action, hasUpdatedFrom: !!payload?.updatedFrom, dataId: payload?.data?.id }));
+  // Read raw body and parse it ourselves
+  const rawBody = await getRawBody(req);
+  const payload = JSON.parse(rawBody.toString());
+
+  console.log("[webhook] Received:", JSON.stringify({
+    type: payload?.type,
+    action: payload?.action,
+    hasUpdatedFrom: !!payload?.updatedFrom,
+    dataId: payload?.data?.id,
+  }));
 
   // Verify webhook signature
-  const rawBody = JSON.stringify(req.body);
   const signature = req.headers["linear-signature"] as string | undefined;
   const secret = process.env.LINEAR_WEBHOOK_SECRET ?? "";
 
-  if (!verifySignature(rawBody, signature, secret)) {
-    console.log("[webhook] Signature verification failed");
-    return res.status(401).json({ error: "Invalid signature" });
+  if (secret && signature) {
+    if (!verifySignature(rawBody, signature, secret)) {
+      console.log("[webhook] ❌ Signature verification failed");
+      return res.status(401).json({ error: "Invalid signature" });
+    }
+    console.log("[webhook] ✅ Signature verified");
+  } else if (secret && !signature) {
+    console.log("[webhook] ❌ Missing signature header");
+    return res.status(401).json({ error: "Missing signature" });
   }
 
   // Only handle issue updates with state changes
