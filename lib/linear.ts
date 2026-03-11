@@ -1,5 +1,6 @@
 import { LinearClient } from "@linear/sdk";
 import { getEnv, getTeamFilter } from "./config";
+import { getCurrentStateTimesForActiveIssues } from "./db";
 
 let client: LinearClient | null = null;
 
@@ -44,6 +45,14 @@ export async function getWipCounts(): Promise<UserWipCount[]> {
     );
   }
 
+  // Pre-fetch all active issue durations from DB in one query
+  let activeIssueTimes: Map<string, { stateName: string; enteredAt: Date }>;
+  try {
+    activeIssueTimes = await getCurrentStateTimesForActiveIssues();
+  } catch {
+    activeIssueTimes = new Map(); // Fall back to per-issue Linear API calls
+  }
+
   // Collect all WIP issues across teams, keyed by user
   const userMap = new Map<string, UserWipCount>();
   const unassignedKey = "__unassigned__";
@@ -80,13 +89,22 @@ export async function getWipCounts(): Promise<UserWipCount[]> {
 
         // Calculate how long the issue has been in its current state
         let duration: string | null = null;
-        try {
-          const timeMs = await getTimeInState(issue.id, state.name);
-          if (timeMs !== null && timeMs > 0) {
+        const dbEntry = activeIssueTimes.get(issue.id);
+        if (dbEntry) {
+          const timeMs = Date.now() - dbEntry.enteredAt.getTime();
+          if (timeMs > 0) {
             duration = formatDuration(timeMs);
           }
-        } catch {
-          // Non-critical — skip if history lookup fails
+        } else {
+          // Fallback to Linear API for issues without DB data
+          try {
+            const timeMs = await getTimeInState(issue.id, state.name);
+            if (timeMs !== null && timeMs > 0) {
+              duration = formatDuration(timeMs);
+            }
+          } catch {
+            // Non-critical
+          }
         }
 
         const entry = userMap.get(key)!;

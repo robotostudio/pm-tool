@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { getLinearClient, getTimeInState, getTimeSinceInProgress, formatDuration } from "../../lib/linear";
 import { buildStatusChangeBlock, sendSlackMessage } from "../../lib/slack";
 import { getTeamFilter } from "../../lib/config";
+import { recordTransition, getTimeInStateFromDb, getTimeSinceInProgressFromDb } from "../../lib/db";
 
 const TRACKED_STATE_TYPES = new Set(["started", "completed"]);
 
@@ -122,29 +123,54 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // Ignore — previous state may be deleted
     }
 
+    // Record this state transition in the database
+    try {
+      await recordTransition({
+        issueId: issue.id,
+        identifier: issue.identifier,
+        fromState: fromStateName !== "Unknown" ? fromStateName : null,
+        toState: state.name,
+        assigneeName: assignee?.name ?? null,
+      });
+      console.log("[webhook] Recorded transition:", fromStateName, "->", state.name);
+    } catch (dbErr) {
+      console.error("[webhook] DB write failed (continuing):", dbErr);
+    }
+
     // Calculate cycle time: how long was it in the previous state?
     let cycleTime: string | null = null;
     try {
-      const timeMs = await getTimeInState(issue.id, fromStateName);
+      const timeMs = await getTimeInStateFromDb(issue.id, fromStateName);
       if (timeMs !== null && timeMs > 0) {
         cycleTime = formatDuration(timeMs);
       }
     } catch {
-      // Non-critical — skip cycle time if history lookup fails
+      // Fallback to Linear API if DB query fails
+      try {
+        const timeMs = await getTimeInState(issue.id, fromStateName);
+        if (timeMs !== null && timeMs > 0) {
+          cycleTime = formatDuration(timeMs);
+        }
+      } catch { /* Non-critical */ }
     }
 
     // Calculate total time since "In Progress" (for Review and Done transitions)
     let totalCycleTime: string | null = null;
-    try {
-      // Only show total cycle time when moving to Review or Done (not when entering In Progress)
-      if (state.name !== "In Progress") {
-        const totalMs = await getTimeSinceInProgress(issue.id);
+    if (state.name !== "In Progress") {
+      try {
+        const totalMs = await getTimeSinceInProgressFromDb(issue.id);
         if (totalMs !== null && totalMs > 0) {
           totalCycleTime = formatDuration(totalMs);
         }
+      } catch {
+        // Fallback to Linear API
+        try {
+          const totalMs = await getTimeSinceInProgress(issue.id);
+          if (totalMs !== null && totalMs > 0) {
+            totalCycleTime = formatDuration(totalMs);
+          }
+        } catch { /* Non-critical */ }
       }
-    } catch {
-      // Non-critical
     }
 
     const blocks = buildStatusChangeBlock({
