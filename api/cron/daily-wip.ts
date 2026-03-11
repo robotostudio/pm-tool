@@ -7,7 +7,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const authHeader = req.headers.authorization;
   const cronSecret = process.env.CRON_SECRET;
 
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+  if (!cronSecret) {
+    console.error("[wip] CRON_SECRET not configured");
+    return res.status(500).json({ error: "Server misconfigured" });
+  }
+  if (authHeader !== `Bearer ${cronSecret}`) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
@@ -31,6 +35,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   } catch (err) {
     console.error("Daily WIP cron failed:", err);
-    return res.status(500).json({ error: String(err) });
+    return res.status(500).json({ error: "Internal server error" });
   }
 }

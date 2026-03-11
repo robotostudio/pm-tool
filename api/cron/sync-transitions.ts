@@ -4,15 +4,19 @@ import { getTeamFilter } from "../../lib/config";
 import { sql } from "@vercel/postgres";
 
 /**
- * Hourly cron that syncs state transitions from Linear into the DB.
- * Queries issues updated in the last 2 hours (overlap to avoid gaps),
+ * Daily cron that syncs state transitions from Linear into the DB.
+ * Queries issues updated in the last 26 hours (overlap to avoid gaps),
  * fetches their history, and inserts any transitions not already recorded.
  */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const authHeader = req.headers.authorization;
   const cronSecret = process.env.CRON_SECRET;
 
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+  if (!cronSecret) {
+    console.error("[sync] CRON_SECRET not configured");
+    return res.status(500).json({ error: "Server misconfigured" });
+  }
+  if (authHeader !== `Bearer ${cronSecret}`) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
@@ -22,11 +26,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({ ok: true, ...stats });
   } catch (err) {
     console.error("[sync] Failed:", err);
-    return res.status(500).json({ error: String(err) });
+    return res.status(500).json({ error: "Internal server error" });
   }
 }
 
-export async function syncRecentTransitions(lookbackMs = 2 * 60 * 60 * 1000) {
+export async function syncRecentTransitions(lookbackMs = 26 * 60 * 60 * 1000) {
   const linear = getLinearClient();
   const teamFilter = getTeamFilter();
   const since = new Date(Date.now() - lookbackMs);

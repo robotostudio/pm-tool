@@ -12,13 +12,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  // Protect with CRON_SECRET (reuse existing secret)
+  // Protect with CRON_SECRET (fail-closed: reject if not configured)
   const secret = process.env.CRON_SECRET;
-  if (secret) {
-    const auth = req.headers.authorization;
-    if (auth !== `Bearer ${secret}`) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
+  if (!secret) {
+    console.error("[report] CRON_SECRET not configured");
+    return res.status(500).json({ error: "Server misconfigured" });
+  }
+  const auth = req.headers.authorization;
+  if (auth !== `Bearer ${secret}`) {
+    return res.status(401).json({ error: "Unauthorized" });
   }
 
   const { team, from, to } = req.query;
@@ -72,6 +74,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   } catch (err) {
     console.error("[report] Error:", err);
-    return res.status(500).json({ error: String(err) });
+    return res.status(500).json({ error: "Internal server error" });
   }
 }
