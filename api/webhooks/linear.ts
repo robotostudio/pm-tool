@@ -61,12 +61,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (secret && signature) {
     if (!verifySignature(rawBody, signature, secret)) {
-      console.log("[webhook] ❌ Signature verification failed");
+      console.log("[webhook] Signature verification failed");
       return res.status(401).json({ error: "Invalid signature" });
     }
-    console.log("[webhook] ✅ Signature verified");
+    console.log("[webhook] Signature verified");
   } else if (secret && !signature) {
-    console.log("[webhook] ❌ Missing signature header");
+    console.log("[webhook] Missing signature header");
     return res.status(401).json({ error: "Missing signature" });
   }
 
