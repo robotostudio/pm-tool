@@ -1,5 +1,8 @@
 import { getEnv } from "./config";
 import type { UserWipCount } from "./linear";
+import type { IssueTimeReport } from "./db";
+import { formatDuration } from "./linear";
+import type { ParsedQuery } from "./parse-query";
 
 interface SlackBlock {
   type: string;
@@ -78,6 +81,116 @@ export function buildWipReportBlocks(data: UserWipCount[]): SlackBlock[] {
 
     blocks.push({ type: "divider" });
   }
+
+  return blocks;
+}
+
+/**
+ * Post a message to a Slack channel using the Bot token (Web API).
+ * Used for bot replies — different from sendSlackMessage which uses incoming webhook.
+ */
+export async function postSlackBotMessage(
+  channel: string,
+  blocks: SlackBlock[],
+  text: string
+): Promise<void> {
+  const token = getEnv("SLACK_BOT_TOKEN");
+
+  const res = await fetch("https://slack.com/api/chat.postMessage", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ channel, blocks, text }),
+  });
+
+  const data = (await res.json()) as { ok: boolean; error?: string };
+  if (!data.ok) {
+    throw new Error(`Slack API error: ${data.error}`);
+  }
+}
+
+/**
+ * Build Slack blocks for a cycle time report.
+ */
+export function buildCycleTimeReportBlocks(
+  reports: IssueTimeReport[],
+  query: ParsedQuery
+): SlackBlock[] {
+  const teamLabel = query.team ?? "All teams";
+  const periodLabel =
+    query.from && query.to ? `${query.from} → ${query.to}` : "Last 30 days";
+
+  const blocks: SlackBlock[] = [
+    {
+      type: "header",
+      text: {
+        type: "plain_text",
+        text: `Cycle Time Report — ${teamLabel}`,
+        emoji: true,
+      },
+    },
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*Period:* ${periodLabel}\n*Issues:* ${reports.length}`,
+      },
+    },
+    { type: "divider" },
+  ];
+
+  if (reports.length === 0) {
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: "No issues found for this period." },
+    });
+    return blocks;
+  }
+
+  // Show top 20 issues to stay within Slack limits
+  const shown = reports.slice(0, 20);
+
+  for (const r of shown) {
+    const assignee = r.assignee ?? "Unassigned";
+    const inProg = formatDuration(r.inProgressMs);
+    const inRev = formatDuration(r.inReviewMs);
+    const total = formatDuration(r.totalMs);
+
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*${r.identifier}*  —  ${assignee}\n_In Progress:_ ${inProg}  |  _In Review:_ ${inRev}  |  *Total: ${total}*`,
+      },
+    });
+  }
+
+  if (reports.length > 20) {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `_...and ${reports.length - 20} more issues_`,
+      },
+    });
+  }
+
+  // Summary
+  const totalInProgressMs = reports.reduce((s, r) => s + r.inProgressMs, 0);
+  const totalInReviewMs = reports.reduce((s, r) => s + r.inReviewMs, 0);
+  const totalMs = totalInProgressMs + totalInReviewMs;
+  const avgMs = reports.length > 0 ? totalMs / reports.length : 0;
+
+  blocks.push({ type: "divider" });
+  blocks.push({
+    type: "section",
+    text: {
+      type: "mrkdwn",
+      text: `*Summary*\nTotal in-progress: ${formatDuration(totalInProgressMs)}  |  Total in-review: ${formatDuration(totalInReviewMs)}\n*Average cycle time: ${formatDuration(avgMs)}*`,
+    },
+  });
 
   return blocks;
 }
